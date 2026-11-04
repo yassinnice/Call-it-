@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure WebRTC Video Call</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom scrollbar for a cleaner look */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+        
+        video {
+            transform: scaleX(-1); /* Mirror effect */
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white font-sans min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="p-4 border-b border-gray-800 flex flex-col sm:flex-row justify-between items-center gap-4 bg-gray-900/50 backdrop-blur-md sticky top-0 z-50">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+            </div>
+            <h1 class="text-xl font-bold tracking-tight">SecureCall</h1>
+        </div>
+        
+        <!-- E2E Encryption Badge -->
+        <div class="flex items-center gap-2 bg-gray-800 px-4 py-1.5 rounded-full border border-gray-700 shadow-inner">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-sm font-medium text-emerald-400">WebRTC E2E Encrypted</span>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 p-4 md:p-8 flex flex-col items-center max-w-6xl mx-auto w-full">
+        
+        <!-- Status Messages -->
+        <div id="statusAlert" class="w-full mb-6 p-4 rounded-lg bg-gray-800 border border-gray-700 text-sm hidden transition-all duration-300">
+            <span id="statusText">System ready.</span>
+        </div>
+
+        <!-- Video Area (Picture in Picture style) -->
+        <div class="relative w-full aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-gray-800 mb-8 group">
+            
+            <!-- Remote Video (Main) -->
+            <video id="remoteVideo" class="w-full h-full object-cover" autoplay playsinline></video>
+            
+            <div class="absolute inset-0 flex items-center justify-center pointer-events-none" id="waitingOverlay">
+                <p class="text-gray-400 font-medium bg-black/50 px-6 py-3 rounded-full backdrop-blur-sm border border-gray-700">Waiting for remote connection...</p>
+            </div>
+
+            <!-- Local Video (PIP) -->
+            <div class="absolute bottom-4 right-4 w-1/3 max-w-[240px] aspect-video bg-gray-900 rounded-xl overflow-hidden border-2 border-indigo-500/50 shadow-2xl transition-transform duration-300 hover:scale-105 z-10">
+                <video id="localVideo" class="w-full h-full object-cover" autoplay playsinline muted></video>
+                <div class="absolute bottom-2 left-2 bg-black/60 px-2 py-0.5 rounded text-xs text-white backdrop-blur-md">You</div>
+            </div>
+            
+            <!-- Recording Indicator -->
+            <div id="recordingIndicator" class="absolute top-4 left-4 flex items-center gap-2 bg-black/70 px-3 py-1.5 rounded-full border border-red-500/30 backdrop-blur-sm hidden z-10">
+                <div class="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></div>
+                <span class="text-xs font-bold text-red-400 tracking-wider">REC</span>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="w-full grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-800/50 p-6 rounded-2xl border border-gray-700 backdrop-blur-sm">
+            
+            <!-- Call Controls -->
+            <div class="space-y-4">
+                <h3 class="text-lg font-semibold text-gray-200 border-b border-gray-700 pb-2">Connection Settings</h3>
+                
+                <div class="flex gap-3">
+                    <button id="startCamBtn" class="flex-1 bg-gray-700 hover:bg-gray-600 text-white px-4 py-2.5 rounded-lg font-medium transition-colors focus:ring-2 focus:ring-gray-500 outline-none flex justify-center items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
+                        </svg>
+                        Start Camera
+                    </button>
+                </div>
+
+                <div class="flex gap-3">
+                    <button id="createCallBtn" disabled class="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-lg font-medium transition-colors focus:ring-2 focus:ring-indigo-500 outline-none">
+                        Create Call
+                    </button>
+                </div>
+
+                <div class="flex gap-3 items-center">
+                    <input type="text" id="callIdInput" placeholder="Enter Call ID to join..." class="flex-1 bg-gray-900 border border-gray-700 text-white text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2.5 outline-none placeholder-gray-500">
+                    <button id="joinCallBtn" disabled class="bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-lg font-medium transition-colors focus:ring-2 focus:ring-emerald-500 outline-none">
+                        Join Call
+                    </button>
+                </div>
+
+                <div class="flex gap-3">
+                    <button id="hangupBtn" disabled class="flex-1 bg-rose-600 hover:bg-rose-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-lg font-medium transition-colors focus:ring-2 focus:ring-rose-500 outline-none flex justify-center items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524l8.367 8.368zm1.415-1.414L6.524 5.11a6 6 0 018.368 8.367zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clip-rule="evenodd" />
+                        </svg>
+                        Hang Up
+                    </button>
+                </div>
+            </div>
+
+            <!-- Record Controls -->
+            <div class="space-y-4">
+                <h3 class="text-lg font-semibold text-gray-200 border-b border-gray-700 pb-2">Record Session</h3>
+                
+                <p class="text-sm text-gray-400">Recording captures the remote participant's video and audio stream locally.</p>
+
+                <div class="flex flex-col gap-3 h-full justify-start mt-4">
+                    <button id="startRecordBtn" disabled class="w-full bg-red-600/20 text-red-500 border border-red-500/50 hover:bg-red-600 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-600/20 disabled:hover:text-red-500 px-4 py-3 rounded-lg font-medium transition-all duration-300 flex justify-center items-center gap-2">
+                        <div class="w-3 h-3 rounded-full bg-current"></div>
+                        Start Recording
+                    </button>
+                    
+                    <button id="stopRecordBtn" disabled class="w-full bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg font-medium transition-colors flex justify-center items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                        </svg>
+                        Stop & Download Recording
+                    </button>
+                </div>
+            </div>
+            
+        </div>
+    </main>
+
+    <!-- Firebase and Application Logic -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, collection, doc, setDoc, getDoc, updateDoc, 
+            addDoc, onSnapshot, query 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ==========================================
+        // Firebase Setup & Constraints Handling
+        // ==========================================
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'webrtc-local-test-app';
+        let firebaseConfig = {};
+        
+        try {
+            if (typeof __firebase_config !== 'undefined') {
+                firebaseConfig = JSON.parse(__firebase_config);
+            }
+        } catch (e) {
+            showStatus("Failed to parse Firebase config. Functionality limited.", "error");
+        }
+
+        let app, db, auth, user;
+        
+        if (Object.keys(firebaseConfig).length > 0) {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        }
+
+        // ==========================================
+        // Global Variables
+        // ==========================================
+        let localStream = null;
+        let remoteStream = null;
+        let peerConnection = null;
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let currentCallDocRef = null;
+        let unsubscribeListeners = [];
+
+        // STUN servers for WebRTC
+        const servers = {
+            iceServers: [
+                { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }
+            ],
+            iceCandidatePoolSize: 10,
+        };
+
+        // DOM Elements
+        const localVideo = document.getElementById('localVideo');
+        const remoteVideo = document.getElementById('remoteVideo');
+        const startCamBtn = document.getElementById('startCamBtn');
+        const createCallBtn = document.getElementById('createCallBtn');
+        const joinCallBtn = document.getElementById('joinCallBtn');
+        const hangupBtn = document.getElementById('hangupBtn');
+        const callIdInput = document.getElementById('callIdInput');
+        const waitingOverlay = document.getElementById('waitingOverlay');
+        const startRecordBtn = document.getElementById('startRecordBtn');
+        const stopRecordBtn = document.getElementById('stopRecordBtn');
+        const recordingIndicator = document.getElementById('recordingIndicator');
+        const statusAlert = document.getElementById('statusAlert');
+        const statusText = document.getElementById('statusText');
+
+        // ==========================================
+        // Utility Functions
+        // ==========================================
+        function showStatus(msg, type = "info") {
+            statusAlert.classList.remove('hidden', 'bg-emerald-900', 'border-emerald-700', 'text-emerald-200', 'bg-rose-900', 'border-rose-700', 'text-rose-200', 'bg-indigo-900', 'border-indigo-700', 'text-indigo-200');
+            
+            if (type === "success") statusAlert.classList.add('bg-emerald-900', 'border-emerald-700', 'text-emerald-200');
+            else if (type === "error") statusAlert.classList.add('bg-rose-900', 'border-rose-700', 'text-rose-200');
+            else statusAlert.classList.add('bg-indigo-900', 'border-indigo-700', 'text-indigo-200');
+            
+            statusText.innerText = msg;
+            statusAlert.classList.remove('hidden');
+        }
+
+        // Generate base path obeying strict Artifact rules
+        function getCallsCollection() {
+            if (!db) throw new Error("Firestore not initialized");
+            // Mandatory path structure: /artifacts/{appId}/public/data/{collectionName}
+            return collection(db, 'artifacts', appId, 'public', 'data', 'calls');
+        }
+
+        async function authenticateUser() {
+            if (!auth) return false;
+            if (user) return true;
+
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    const cred = await signInWithCustomToken(auth, __initial_auth_token);
+                    user = cred.user;
+                } else {
+                    const cred = await signInAnonymously(auth);
+                    user = cred.user;
+                }
+                return true;
+            } catch (err) {
+                console.error("Auth error:", err);
+                showStatus("Authentication failed. Cannot connect to signaling server.", "error");
+                return false;
+            }
+        }
+
+        // Clean up Firestore listeners
+        function clearListeners() {
+            unsubscribeListeners.forEach(unsub => unsub());
+            unsubscribeListeners = [];
+        }
+
+        // ==========================================
+        // Core WebRTC Logic
+        // ==========================================
+
+        // 1. Start Camera
+        startCamBtn.onclick = async () => {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localVideo.srcObject = localStream;
+                
+                showStatus("Camera started. You can now create or join a call.", "success");
+                
+                // Enable call buttons
+                createCallBtn.disabled = false;
+                joinCallBtn.disabled = false;
+                startCamBtn.disabled = true;
+                
+                // Disable input field while local stream is active just for clean UI
+                callIdInput.addEventListener('input', () => {
+                    joinCallBtn.disabled = !callIdInput.value.trim();
+                });
+            } catch (error) {
+                console.error("Error accessing media devices.", error);
+                showStatus("Error accessing camera/microphone. Please allow permissions.", "error");
+            }
+        };
+
+        // 2. Setup Peer Connection Common Logic
+        function setupPeerConnection() {
+            peerConnection = new RTCPeerConnection(servers);
+            remoteStream = new MediaStream();
+            remoteVideo.srcObject = remoteStream;
+
+            // Push local tracks to the connection
+            if (localStream) {
+                localStream.getTracks().forEach((track) => {
+                    peerConnection.addTrack(track, localStream);
+                });
+            }
+
+            // Listen for remote tracks
+            peerConnection.ontrack = (event) => {
+                event.streams[0].getTracks().forEach((track) => {
+                    remoteStream.addTrack(track);
+                });
+                waitingOverlay.classList.add('hidden');
+                
+                // Enable recording once we have a remote track
+                startRecordBtn.disabled = false;
+                showStatus("Connected securely to remote peer.", "success");
+            };
+
+            // Monitor connection state
+            peerConnection.onconnectionstatechange = () => {
+                if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
+                    showStatus("Remote peer disconnected.", "error");
+                    hangupCall(false); // Cleanup locally
+                }
+            };
+        }
+
+        // 3. Create Call (Caller)
+        createCallBtn.onclick = async () => {
+            const isAuthed = await authenticateUser();
+            if (!isAuthed) return;
+
+            createCallBtn.disabled = true;
+            joinCallBtn.disabled = true;
+            hangupBtn.disabled = false;
+
+            setupPeerConnection();
+
+            // Firestore references
+            const callsColl = getCallsCollection();
+            const callDoc = doc(callsColl); // Auto-generate ID
+            currentCallDocRef = callDoc;
+
+            const callerCandidatesColl = collection(callDoc, 'callerCandidates');
+            const calleeCandidatesColl = collection(callDoc, 'calleeCandidates');
+
+            // Collect ICE candidates and save to subcollection
+            peerConnection.onicecandidate = async (event) => {
+                if (event.candidate) {
+                    await addDoc(callerCandidatesColl, event.candidate.toJSON());
+                }
+            };
+
+            // Create Offer
+            const offerDescription = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offerDescription);
+
+            const offer = {
+                sdp: offerDescription.sdp,
+                type: offerDescription.type,
+            };
+
+            await setDoc(callDoc, { offer });
+
+            // Display the Room ID so others can join
+            callIdInput.value = callDoc.id;
+            showStatus(`Call created! Share the Call ID: ${callDoc.id}`, "info");
+
+            // Listen for remote answer
+            const unsubCallDoc = onSnapshot(callDoc, (snapshot) => {
+                const data = snapshot.data();
+                if (!peerConnection.currentRemoteDescription && data?.answer) {
+                    const answerDescription = new RTCSessionDescription(data.answer);
+                    peerConnection.setRemoteDescription(answerDescription)
+                        .then(() => {
+                            // Only listen to remote ICE candidates AFTER remote description is set
+                            const unsubCalleeICE = onSnapshot(calleeCandidatesColl, (snapshotICE) => {
+                                snapshotICE.docChanges().forEach((change) => {
+                                    if (change.type === 'added') {
+                                        let data = change.doc.data();
+                                        peerConnection.addIceCandidate(new RTCIceCandidate(data));
+                                    }
+                                });
+                            }, (err) => {
+                                console.error("Error listening to ICE candidates", err);
+                            });
+                            unsubscribeListeners.push(unsubCalleeICE);
+                        })
+                        .catch(err => console.error("Error setting remote description:", err));
+                }
+            }, (err) => {
+                console.error("Error listening to call document", err);
+                showStatus("Connection error with signaling server.", "error");
+            });
+            
+            unsubscribeListeners.push(unsubCallDoc);
+        };
+
+        // 4. Join Call (Callee)
+        joinCallBtn.onclick = async () => {
+            const callId = callIdInput.value.trim();
+            if (!callId) {
+                showStatus("Please enter a valid Call ID.", "error");
+                return;
+            }
+
+            const isAuthed = await authenticateUser();
+            if (!isAuthed) return;
+
+            const callsColl = getCallsCollection();
+            const callDoc = doc(callsColl, callId);
+            
+            const callSnapshot = await getDoc(callDoc);
+            if (!callSnapshot.exists()) {
+                showStatus("Call ID not found.", "error");
+                return;
+            }
+
+            createCallBtn.disabled = true;
+            joinCallBtn.disabled = true;
+            hangupBtn.disabled = false;
+            currentCallDocRef = callDoc;
+
+            setupPeerConnection();
+
+            const callerCandidatesColl = collection(callDoc, 'callerCandidates');
+            const calleeCandidatesColl = collection(callDoc, 'calleeCandidates');
+
+            // Collect local ICE candidates and save to subcollection
+            peerConnection.onicecandidate = async (event) => {
+                if (event.candidate) {
+                    await addDoc(calleeCandidatesColl, event.candidate.toJSON());
+                }
+            };
+
+            // Set Remote Description from Offer
+            const callData = callSnapshot.data();
+            const offerDescription = callData.offer;
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(offerDescription));
+
+            // Create Answer and Set Local Description
+            const answerDescription = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answerDescription);
+
+            const answer = {
+                type: answerDescription.type,
+                sdp: answerDescription.sdp,
+            };
+
+            // Send Answer back
+            await updateDoc(callDoc, { answer });
+            showStatus("Joining call... Establishing E2E encrypted connection.", "info");
+
+            // Listen for caller ICE candidates AFTER setting remote description
+            const unsubCallerICE = onSnapshot(callerCandidatesColl, (snapshot) => {
+                snapshot.docChanges().forEach((change) => {
+                    if (change.type === 'added') {
+                        let data = change.doc.data();
+                        peerConnection.addIceCandidate(new RTCIceCandidate(data));
+                    }
+                });
+            }, (err) => {
+                console.error("Error listening to caller ICE candidates", err);
+            });
+
+            unsubscribeListeners.push(unsubCallerICE);
+        };
+
+        // 5. Hang Up Call
+        function hangupCall(clearFirestore = true) {
+            clearListeners();
+            
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+
+            if (remoteStream) {
+                remoteStream.getTracks().forEach(track => track.stop());
+                remoteStream = null;
+            }
+            
+            if (remoteVideo) remoteVideo.srcObject = null;
+            waitingOverlay.classList.remove('hidden');
+
+            // If we're recording, stop it
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+
+            // Reset UI
+            createCallBtn.disabled = false;
+            joinCallBtn.disabled = !callIdInput.value.trim();
+            hangupBtn.disabled = true;
+            startRecordBtn.disabled = true;
+            stopRecordBtn.disabled = true;
+            callIdInput.value = '';
+            
+            showStatus("Call ended.", "info");
+        }
+
+        hangupBtn.onclick = () => hangupCall(true);
+
+        // ==========================================
+        // Recording Logic
+        // ==========================================
+        startRecordBtn.onclick = () => {
+            if (!remoteStream || remoteStream.getTracks().length === 0) {
+                showStatus("No remote stream available to record.", "error");
+                return;
+            }
+
+            recordedChunks = [];
+            
+            try {
+                // Try preferred format, fallback to default
+                let options = { mimeType: 'video/webm; codecs=vp9' };
+                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                    options = { mimeType: 'video/webm' };
+                }
+                
+                mediaRecorder = new MediaRecorder(remoteStream, options);
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data && event.data.size > 0) {
+                        recordedChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = () => {
+                    // Create File and trigger download
+                    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                    const url = URL.createObjectURL(blob);
+                    
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = `SecureCall_Record_${new Date().getTime()}.webm`;
+                    document.body.appendChild(a);
+                    a.click();
+                    
+                    setTimeout(() => {
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                    }, 100);
+
+                    showStatus("Recording saved.", "success");
+                    recordingIndicator.classList.add('hidden');
+                    startRecordBtn.disabled = false;
+                    stopRecordBtn.disabled = true;
+                };
+
+                mediaRecorder.start();
+                
+                // UI Updates
+                recordingIndicator.classList.remove('hidden');
+                startRecordBtn.disabled = true;
+                stopRecordBtn.disabled = false;
+                showStatus("Recording started...", "info");
+
+            } catch (err) {
+                console.error("Recording error", err);
+                showStatus("Failed to start recording. Browser might not support the format.", "error");
+            }
+        };
+
+        stopRecordBtn.onclick = () => {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+        };
+
+    </script>
+</body>
+</html>
